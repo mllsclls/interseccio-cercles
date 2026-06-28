@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<title>Intersecció de dos cercles (lat/lon)</title>
+<style>
+  body{font-family:sans-serif;max-width:600px;margin:30px auto;padding:0 10px}
+  fieldset{margin-bottom:10px}
+  label{display:inline-block;width:90px}
+  input{width:260px}
+  button{margin-top:10px;padding:6px 16px}
+  #result{margin-top:15px;font-weight:bold;white-space:pre-line;font-size:1.05em}
+  .ok{color:#16a34a}
+  .warn{color:#dc2626}
+</style>
+</head>
+<body>
+<h2>Intersecció de dos cercles (coordenades lat/lon)</h2>
+
+<fieldset>
+  <legend>Punt A</legend>
+  <label>Coordenades:</label><input id="acoord" type="text" value="41.61464659871559, 0.6268219066435988"><br><br>
+  <label>Radi (km):</label><input id="arad" type="text" style="width:100px" value="120,92">
+</fieldset>
+
+<fieldset>
+  <legend>Punt B</legend>
+  <label>Coordenades:</label><input id="bcoord" type="text" value="41.38255497986094, 2.177482747954653"><br><br>
+  <label>Radi (km):</label><input id="brad" type="text" style="width:100px" value="90,53">
+</fieldset>
+
+<button onclick="calcula()">Calcula intersecció</button>
+
+<div id="result"></div>
+
+<script>
+const R = 6371; // radi terrestre en km
+
+const toRad = d => d*Math.PI/180;
+const toDeg = r => r*180/Math.PI;
+
+function destPoint(lat, lon, distKm, bearingDeg){
+  const br = toRad(bearingDeg);
+  const lat1 = toRad(lat), lon1 = toRad(lon);
+  const dDivR = distKm / R;
+  const lat2 = Math.asin(Math.sin(lat1)*Math.cos(dDivR) + Math.cos(lat1)*Math.sin(dDivR)*Math.cos(br));
+  const lon2 = lon1 + Math.atan2(Math.sin(br)*Math.sin(dDivR)*Math.cos(lat1), Math.cos(dDivR)-Math.sin(lat1)*Math.sin(lat2));
+  return [toDeg(lat2), toDeg(lon2)];
+}
+
+function haversine(lat1,lon1,lat2,lon2){
+  const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+function bearing(lat1,lon1,lat2,lon2){
+  const y = Math.sin(toRad(lon2-lon1))*Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+  return (toDeg(Math.atan2(y,x))+360)%360;
+}
+
+function parseCoord(str){
+  const parts = str.split(',').map(s=>parseFloat(s.trim()));
+  if (parts.length!==2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+  return parts; // [lat, lon]
+}
+
+function parseNum(str){
+  return parseFloat(String(str).trim().replace(',', '.'));
+}
+
+// Ajusta un punt aproximat perquè la seva distància haversine real a A i B
+// coincideixi EXACTAMENT amb arad i brad (corregeix l'error de la fórmula plana
+// projectada, que es nota a partir de desenes de km de radi).
+function refineIntersection(alat, alon, arad, blat, blon, brad, lat, lon){
+  const eps = 1e-5;
+  for (let i=0; i<50; i++){
+    const f1 = haversine(lat, lon, alat, alon) - arad;
+    const f2 = haversine(lat, lon, blat, blon) - brad;
+    if (Math.abs(f1) < 1e-9 && Math.abs(f2) < 1e-9) break;
+    const f1lat = (haversine(lat+eps, lon, alat, alon) - arad - f1) / eps;
+    const f1lon = (haversine(lat, lon+eps, alat, alon) - arad - f1) / eps;
+    const f2lat = (haversine(lat+eps, lon, blat, blon) - brad - f2) / eps;
+    const f2lon = (haversine(lat, lon+eps, blat, blon) - brad - f2) / eps;
+    const det = f1lat*f2lon - f1lon*f2lat;
+    if (Math.abs(det) < 1e-12) break;
+    const dlat = (f1*f2lon - f2*f1lon) / det;
+    const dlon = (f2*f1lat - f1*f2lat) / det;
+    lat -= dlat; lon -= dlon;
+  }
+  return [lat, lon];
+}
+
+function calcula(){
+  const resEl = document.getElementById('result');
+  const aCoord = parseCoord(document.getElementById('acoord').value);
+  const bCoord = parseCoord(document.getElementById('bcoord').value);
+  if (!aCoord || !bCoord){
+    resEl.innerHTML = '<span class="warn">Format de coordenades no vàlid. Usa: lat, lon</span>';
+    return;
+  }
+  const [alat, alon] = aCoord, [blat, blon] = bCoord;
+  const arad = parseNum(document.getElementById('arad').value);
+  const brad = parseNum(document.getElementById('brad').value);
+  if (isNaN(arad) || isNaN(brad)){
+    resEl.innerHTML = '<span class="warn">Radi no vàlid.</span>';
+    return;
+  }
+
+  const d = haversine(alat,alon,blat,blon);
+
+  if (d > arad+brad){
+    resEl.innerHTML = `<span class="warn">Els cercles NO es toquen.</span>\nDistància entre centres: ${d.toFixed(3)} km\nSuma de radis: ${(arad+brad).toFixed(3)} km`;
+    return;
+  }
+  if (d < Math.abs(arad-brad)){
+    resEl.innerHTML = '<span class="warn">Un cercle conté completament l\'altre (no hi ha intersecció).</span>';
+    return;
+  }
+
+  const brg = bearing(alat,alon,blat,blon);
+  const a = (arad*arad - brad*brad + d*d) / (2*d);
+  const h = Math.sqrt(Math.max(0, arad*arad - a*a));
+  const [mlat, mlon] = destPoint(alat, alon, a, brg);
+  let p1 = destPoint(mlat, mlon, h, brg+90);
+  let p2 = destPoint(mlat, mlon, h, brg-90);
+  // refinament: corregeix la desviació de la fórmula plana sobre l'esfera real
+  p1 = refineIntersection(alat, alon, arad, blat, blon, brad, p1[0], p1[1]);
+  p2 = refineIntersection(alat, alon, arad, blat, blon, brad, p2[0], p2[1]);
+
+  if (h < 1e-6){
+    resEl.innerHTML = `<span class="ok">Cercles tangents en 1 punt:</span>\n${p1[0].toFixed(6)}, ${p1[1].toFixed(6)}`;
+  } else {
+    resEl.innerHTML = `<span class="ok">Punts d'intersecció:</span>\nP1:  ${p1[0].toFixed(6)}, ${p1[1].toFixed(6)}\nP2:  ${p2[0].toFixed(6)}, ${p2[1].toFixed(6)}`;
+  }
+}
+calcula();
+</script>
+</body>
+</html>
